@@ -1,16 +1,19 @@
 package engineering.hansen.nsrllookup;
 
-import java.io.*;
-import java.net.*;
-import java.nio.file.*;
-import java.util.*;
-import java.util.regex.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
+
+import java.io.*;
+import java.net.*;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Connection {
     private static final Pattern MD5RX = Pattern.compile("^[A-Fa-f0-9]{32}$");
@@ -25,7 +28,7 @@ public class Connection {
     static {
         String configuredHost = "nsrllookup.com";
         int configuredPort = 9120;
-        File f = null;
+        File f;
 
         if (null == System.getProperty("log4j.configuration")) {
             ArrayList<URI> uris = new ArrayList<>();
@@ -172,6 +175,7 @@ public class Connection {
             sock = new Socket(host, port);
             reader = new BufferedReader(new InputStreamReader(sock.getInputStream()));
             writer = new OutputStreamWriter(sock.getOutputStream());
+            LOGGER.info("connected to " + hoststr);
         }
         catch (IOException ioe) {
             LOGGER.warn("could not connect to " + hoststr);
@@ -181,30 +185,42 @@ public class Connection {
         try {
             writer.write("Version: 2.0\r\n");
             writer.flush();
-            if (! reader.readLine().trim().equals("OK")) {
+            if (!reader.readLine().trim().equals("OK")) {
                 LOGGER.warn("failed handshake with " + hoststr);
                 return results.stream();
             }
 
-            for (int i = 0 ; i < queries.size() ; i += 1) {
+            for (int i = 0; i < queries.size(); i += 1) {
+                LOGGER.info("sending a block of " +
+                        ((queries.get(i).length() - 5) / 33) +
+                        " query/queries");
                 writer.write(queries.get(i));
                 writer.flush();
                 Matcher m = GOODRX.matcher(reader.readLine().trim());
-                if (! m.matches()) {
+                if (!m.matches()) {
                     LOGGER.warn("server has failed!");
                     results.clear();
                     return results.stream();
                 }
                 String response = m.group(1);
-                for (int j = 0 ; j < response.length() ; j += 1) {
+                LOGGER.info("received " + response.length() +
+                        " result(s)");
+                int matches = 0;
+                for (int j = 0; j < response.length(); j += 1) {
                     if (response.charAt(j) == match) {
                         results.add(hashes[(i * CHUNK_SIZE) + j]);
+                        matches += 1;
                     }
                 }
+                LOGGER.info("found " + matches +
+                        (horm ? " hit(s)" : " miss(es)"));
             }
             writer.write("BYE\r\n");
             writer.flush();
             sock.close();
+            LOGGER.info("received " + results.size() +
+                    (horm ? " hit(s)" : " miss(es)") + " in total");
+            LOGGER.info("disconnected from " + hoststr);
         }
         catch (IOException ioe) {
             LOGGER.warn("unexpected failure: " + ioe.toString());
